@@ -42,6 +42,7 @@ namespace libEDSsharp
         private List<string> ODList;
         private List<string> ODDefines;
         private List<string> ODDefinesLong;
+        private List<string> ODSubObjectsDefinesLong;
         private Dictionary<string, UInt16> ODCnt;
 
         /// <summary>
@@ -78,6 +79,7 @@ namespace libEDSsharp
             ODList = new List<string>();
             ODDefines = new List<string>();
             ODDefinesLong = new List<string>();
+            ODSubObjectsDefinesLong = new List<string>();
             ODCnt = new Dictionary<string, UInt16>();
 
             List<string> mappingErrors = eds.VerifyPDOMapping();
@@ -130,11 +132,18 @@ namespace libEDSsharp
                 ODDefines.Add($"#define {odname}_ENTRY_H{indexH} &{odname}->list[{ODList.Count}]");
                 ODDefinesLong.Add($"#define {odname}_ENTRY_H{varName} &{odname}->list[{ODList.Count}]");
 
+                foreach (var subobject in od.subobjects) {
+                    var subIndex = subobject.Value.Subindex;
+                    string subcName = Make_cname(subobject.Value.parameter_name);
+                    string subVarName = $"{subIndex}_{subcName}";
+                    ODSubObjectsDefinesLong.Add($"#define {odname}_ENTRY_H{varName}_{subVarName} {subIndex}");
+                }
+                
                 // object dictionary
                 ODList.Add($"{{0x{indexH}, 0x{subEntriesCount:X2}, ODT_{odObjectType}, &{odname}Objs.o_{varName}, NULL}}");
 
                 // count labels
-                if (od.prop.CO_countLabel != null && od.prop.CO_countLabel != "")
+                if (!string.IsNullOrEmpty(od.prop.CO_countLabel))
                 {
                     if (ODCnt.ContainsKey(od.prop.CO_countLabel))
                         ODCnt[od.prop.CO_countLabel]++;
@@ -188,11 +197,11 @@ namespace libEDSsharp
         private int Prepare_arr(ODentry od, string indexH, string varName, string group)
         {
             int subEntriesCount = od.subobjects.Count;
-            if (subEntriesCount < 2)
-            {
-                Warnings.AddWarning($"Error in 0x{indexH}: ARRAY must have minimum two sub entries, not {subEntriesCount}!", Warnings.warning_class.WARNING_BUILD);
-                return 0;
-            }
+            //if (subEntriesCount < 2)
+            //{
+            //    Warnings.AddWarning($"Error in 0x{indexH}: ARRAY must have minimum two sub entries, not {subEntriesCount}!", Warnings.warning_class.WARNING_BUILD);
+            //    return 0;
+            //}
 
             // prepare and verify each sub element
             string cValue0 = "";
@@ -264,11 +273,13 @@ namespace libEDSsharp
             ODObjs_t.Add($"OD_obj_array_t o_{varName};");
             ODObjs.Add($"    .o_{varName} = {{");
             ODObjs.Add($"        .dataOrig0 = {dataPtr0},");
-            ODObjs.Add($"        .dataOrig = {dataPtr},");
             ODObjs.Add($"        .attribute0 = {attrElem0},");
-            ODObjs.Add($"        .attribute = {attrElem},");
-            ODObjs.Add($"        .dataElementLength = {dataElem.length},");
-            ODObjs.Add($"        .dataElementSizeof = {dataElementSizeof}");
+            if (subEntriesCount > 1) {
+                ODObjs.Add($"        .dataOrig = {dataPtr},");
+                ODObjs.Add($"        .attribute = {attrElem},");
+                ODObjs.Add($"        .dataElementLength = {dataElem.length},");
+                ODObjs.Add($"        .dataElementSizeof = {dataElementSizeof}");
+            }
             ODObjs.Add($"    }},");
 
             return subEntriesCount;
@@ -441,11 +452,16 @@ namespace libEDSsharp
 /*******************************************************************************
     Object dictionary entries - shortcuts with names
 *******************************************************************************/
-{1}
+{0}", string.Join("\n", ODDefinesLong)));
 
-#endif /* {0}_H */",
-            odname, string.Join("\n", ODDefinesLong)));
+            file.WriteLine(string.Format(@"
 
+/*******************************************************************************
+    Object dictionary sub entries - shortcuts with names
+*******************************************************************************/
+{0}", string.Join("\n", ODSubObjectsDefinesLong)));
+            
+            file.WriteLine($"\n#endif /* {odname}_H */");
             file.Close();
         }
 
